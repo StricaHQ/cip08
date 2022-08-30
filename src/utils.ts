@@ -1,4 +1,5 @@
 import { Decoder } from "@stricahq/cbors";
+import { Buffer } from "buffer";
 
 export const getPublicKeyFromCoseKey = (cbor: string): Buffer => {
   const decodedCoseKey = Decoder.decode(Buffer.from(cbor, "hex"));
