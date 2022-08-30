@@ -1,6 +1,6 @@
 import { expect } from "chai";
 
-import { CoseSign1 } from "../src/index";
+import { CoseSign1, getPublicKeyFromCoseKey } from "../src/index";
 
 describe("CoseSign1", (): void => {
   before(async () => {});
@@ -134,8 +134,23 @@ describe("CoseSign1", (): void => {
       "845869a30127045820c60060ba8a101b84bcaa1169d358c6c23b3f602f2e2ea9430ecfe2a4d9e19dea67616464726573735839006807b8aa9c7f462bf43125d9c071fd01d0720e8133fa9532ffd24c19db5e8ece0982acc4883de67c2e3411cc26bd56686a162074998c02bca166686173686564f44f6d6568756c207072616a61706174695840beddb835fb9e82e9132417491437d197b7ca1765c70526484fc3b0fdc6821897696c83a398db88266f99c5665eb184cd106528bfc2251b3d6e7f0dbbc32a730f";
     const builder = CoseSign1.fromCbor(messageCBOR);
 
-    const verified = builder.verifySignature(Buffer.from("external aad"));
+    const verified = builder.verifySignature({ externalAad: Buffer.from("external aad") });
 
+    expect(verified).eq(true);
+  });
+
+  it("Verify with missing PublicKey in CoseSign1", () => {
+    const messageCBOR =
+      "845846a201276761646472657373583900c7a814c30663312017fb7f26de3c45ee66f018a787bda06975bd3ad857e3e14dcee6ba8f48b97044ca868b4ee017d04ecc792de386beab74a166686173686564f45054686973206973206120737472696e675840ccfb786d2a48e04056bd7eee05a42cc55f01c94de0e5a55e99ef64b799610502af1611f4585f4178546b04c7f7211393328321ce23058c29f101cb30e408a109";
+    const builder = CoseSign1.fromCbor(messageCBOR);
+
+    const pkBuffer = getPublicKeyFromCoseKey(
+      "a40101032720062158203ec69aff937ffd1b1348ca83b423794554114be400926a805b27db92df814d79"
+    );
+
+    const verified = builder.verifySignature({
+      publicKeyBuffer: pkBuffer,
+    });
     expect(verified).eq(true);
   });
 });
