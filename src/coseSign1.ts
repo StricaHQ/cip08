@@ -102,8 +102,16 @@ class CoseSign1 {
     return Encoder.encode(coseSign1);
   }
 
-  verifySignature(externalAad = Buffer.alloc(0)): boolean {
-    const publicKeyBuffer = this.getPublicKey();
+  verifySignature({
+    externalAad = Buffer.alloc(0),
+    publicKeyBuffer,
+  }: {
+    externalAad?: Buffer;
+    publicKeyBuffer?: Buffer;
+  } = {}): boolean {
+    if (!publicKeyBuffer) {
+      publicKeyBuffer = this.getPublicKey();
+    }
 
     if (!publicKeyBuffer) throw Error("Public key not found");
     if (!this.signature) throw Error("Signature not found");
