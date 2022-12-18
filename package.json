@@ -1,6 +1,6 @@
 {
   "name": "@stricahq/cip08",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Cardano CIP08 JavaScript implementation",
   "main": "dist/index.js",
   "keywords": [
