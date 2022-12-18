@@ -10,23 +10,21 @@ class CoseSign1 {
 
   private payload: Buffer;
 
-  private hashPayload: boolean = false;
-
   private signature: Buffer | undefined;
 
   constructor(payload: {
     protectedMap: Map<any, any>;
     unProtectedMap: Map<any, any>;
     payload: Buffer;
-    hashPayload: boolean;
     signature?: Buffer;
   }) {
     this.protectedMap = payload.protectedMap;
     this.unProtectedMap = payload.unProtectedMap;
-    this.hashPayload = payload.hashPayload;
     this.payload = payload.payload;
 
-    this.unProtectedMap.set("hashed", payload.hashPayload);
+    if (this.unProtectedMap.get("hashed") == null) {
+      this.unProtectedMap.set("hashed", false);
+    }
 
     this.signature = payload.signature;
   }
@@ -53,9 +51,6 @@ class CoseSign1 {
     const unProtectedMap = decoded.value[1];
     if (!(unProtectedMap instanceof Map)) throw Error("Invalid unprotected");
 
-    // Set HashPayload property
-    const hashPayload = unProtectedMap.get("hashed") === true;
-
     // Set Payload
     const payload = decoded.value[2];
 
@@ -65,7 +60,6 @@ class CoseSign1 {
     return new CoseSign1({
       protectedMap,
       unProtectedMap,
-      hashPayload,
       payload,
       signature,
     });
@@ -78,13 +72,7 @@ class CoseSign1 {
       protectedSerialized = Encoder.encode(this.protectedMap);
     }
 
-    let payloadToSign = this.payload;
-    if (this.hashPayload) {
-      const hash = blake2b(this.payload, undefined, 24);
-      payloadToSign = Buffer.from(hash);
-    }
-
-    const structure = ["Signature1", protectedSerialized, externalAad, payloadToSign];
+    const structure = ["Signature1", protectedSerialized, externalAad, this.payload];
 
     return Encoder.encode(structure);
   }
@@ -119,6 +107,19 @@ class CoseSign1 {
     const publicKey = new PublicKey(publicKeyBuffer);
 
     return publicKey.verify(this.signature, this.createSigStructure(externalAad));
+  }
+
+  hashPayload() {
+    if (!this.unProtectedMap) throw Error("Invalid unprotected map");
+    if (!this.payload) throw Error("Invalid payload");
+
+    if (this.unProtectedMap.get("hashed")) throw Error("Payload already hashed");
+    if (this.unProtectedMap.get("hashed") != false) throw Error("Invalid unprotected map");
+
+    this.unProtectedMap.set("hashed", true);
+
+    const hash = blake2b(this.payload, undefined, 24);
+    this.payload = Buffer.from(hash);
   }
 
   getAddress(): Buffer {
