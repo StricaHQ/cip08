@@ -8,14 +8,14 @@ class CoseSign1 {
 
   private unProtectedMap: Map<any, any>;
 
-  private payload: Buffer;
+  private payload: Buffer | null;
 
   private signature: Buffer | undefined;
 
   constructor(payload: {
     protectedMap: Map<any, any>;
     unProtectedMap: Map<any, any>;
-    payload: Buffer;
+    payload: Buffer | null;
     signature?: Buffer;
   }) {
     this.protectedMap = payload.protectedMap;

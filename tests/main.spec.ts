@@ -37,7 +37,6 @@ describe("CoseSign1", (): void => {
       protectedMap,
       unProtectedMap: new Map(),
       payload: Buffer.from("mehul prajapati"),
-      hashPayload: false,
     });
 
     const coseSign1 = coseSign1Builder.buildMessage(data.signature);
@@ -74,7 +73,6 @@ describe("CoseSign1", (): void => {
       protectedMap,
       unProtectedMap: new Map(),
       payload: data.payloadBuffer,
-      hashPayload: false,
     });
 
     const sigStucture = coseSign1Builder.createSigStructure();
@@ -111,7 +109,6 @@ describe("CoseSign1", (): void => {
       protectedMap,
       unProtectedMap: new Map(),
       payload: data.payloadBuffer,
-      hashPayload: false,
     });
 
     const sigStucture = coseSign1Builder.createSigStructure(Buffer.from("external"));
