@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { runInNewContext } from "node:vm";
-import { decode, encode } from "@stricahq/cbors";
+import { decode, encode, EncodedCbor } from "@stricahq/cbors";
 import { Bip32PrivateKey, PrivateKey } from "@stricahq/bip32ed25519";
 
 import { CoseSign1, getPublicKeyFromCoseKey } from "../src/index";
@@ -217,6 +217,28 @@ describe("CoseSign1", (): void => {
     expect(() => unsigned.verifySignature()).toThrow("Signature not found");
   });
 
+  it("Throws unless the protected header's alg is EdDSA", () => {
+    const headers = [
+      { protectedMap: new Map([[1, -7]]), unProtectedMap: new Map() },
+      { protectedMap: new Map(), unProtectedMap: new Map() },
+      // the unprotected header isn't signed, so alg there doesn't count
+      { protectedMap: new Map(), unProtectedMap: new Map([[1, -8]]) },
+    ];
+
+    for (const { protectedMap, unProtectedMap } of headers) {
+      const coseSign1 = new CoseSign1({
+        protectedMap,
+        unProtectedMap,
+        payload: utf8("mehul prajapati"),
+      });
+      const message = coseSign1.buildMessage(sign(coseSign1.createSigStructure()));
+
+      expect(() =>
+        CoseSign1.fromCbor(message).verifySignature({ publicKeyBuffer: publicKey })
+      ).toThrow("Unsupported alg");
+    }
+  });
+
   it("Throws on inputs that would make an invalid message", () => {
     const headers = () => ({ protectedMap: new Map([[1, -8]]), unProtectedMap: new Map() });
 
@@ -311,6 +333,21 @@ describe("fromCbor", (): void => {
     expect(() => CoseSign1.fromCbor(withItem(2, "mehul prajapati"))).toThrow("Invalid payload");
     expect(() => CoseSign1.fromCbor(withItem(3, null))).toThrow("Invalid signature");
   });
+
+  it("Throws on a header that has the same label twice", () => {
+    const [protectedSerialized, unProtectedMap, payload, signature] = decode(hex(MESSAGE));
+    // {"address": h'01', "address": h'02'}
+    const addressTwice = hex("a26761646472657373410167616464726573734102");
+    // {"hashed": false, "hashed": true}
+    const hashedTwice = new EncodedCbor(hex("a266686173686564f466686173686564f5"));
+
+    expect(() =>
+      CoseSign1.fromCbor(encode([addressTwice, unProtectedMap, payload, signature]))
+    ).toThrow("Duplicate label in protected");
+    expect(() =>
+      CoseSign1.fromCbor(encode([protectedSerialized, hashedTwice, payload, signature]))
+    ).toThrow("Duplicate label in unprotected");
+  });
 });
 
 describe("Protected header", (): void => {
@@ -325,7 +362,7 @@ describe("Protected header", (): void => {
 
     expect(decode(sigStructure)[1]).toEqual(new Uint8Array(0));
     expect(decode(message)[0]).toEqual(new Uint8Array(0));
-    expect(CoseSign1.fromCbor(message).verifySignature({ publicKeyBuffer: publicKey })).eq(true);
+    expect(toHex(CoseSign1.fromCbor(message).createSigStructure())).eq(toHex(sigStructure));
   });
 
   it("Verifies against the protected header as written, not as encoded again", () => {

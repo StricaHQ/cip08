@@ -27,6 +27,8 @@ v2 is ESM-only, needs Node 22.12 or later, and uses `Uint8Array` instead of `Buf
 | `hashPayload()` hashes to 24 bytes | Blake2b-224, 28 bytes |
 | a `null` payload is signed as CBOR `null` | the payload itself is signed, so pass it to `createSigStructure` and `verifySignature` |
 | `verifySignature` throws on some malformed signatures | returns `false` |
+| `verifySignature` ignores `alg` | throws unless the protected header's `alg` is EdDSA (-8) |
+| `fromCbor` accepts a header with the same label twice | throws |
 | CommonJS package | ESM only, `require(esm)` on Node >= 22.12 |
 
 A few of these won't show up as errors:
@@ -99,7 +101,7 @@ Keep in mind that the address is whatever the signer put there. To tie it to the
 import { CoseSign1 } from "@stricahq/cip08";
 
 const protectedMap = new Map();
-protectedMap.set(1, -8); // alg: EdDSA
+protectedMap.set(1, -8); // alg: EdDSA, which verifySignature requires
 protectedMap.set("address", addressBytes);
 
 const coseSign1 = new CoseSign1({

@@ -1,9 +1,14 @@
 import { blake2b } from "@noble/hashes/blake2.js";
 import { PublicKey } from "@stricahq/bip32ed25519";
-import { decode, encode } from "@stricahq/cbors";
+import { type CborNode, decodeAnnotated, encode } from "@stricahq/cbors";
 import { isBytes, plainView, toBytes } from "./internal/bytes";
 
 const EMPTY = new Uint8Array(0);
+
+// a Map keeps only the last value of a repeated label, but another reader may take the first,
+// and the signature covers both
+const hasDuplicateLabel = (header: CborNode, map: Map<any, any>): boolean =>
+  map.size !== header.entries!.length;
 
 class CoseSign1 {
   private protectedMap: Map<any, any>;
@@ -41,10 +46,12 @@ class CoseSign1 {
   }
 
   /**
-   * Parses a COSE_Sign1 message, given as hex or bytes.
+   * Parses a COSE_Sign1 message, given as hex or bytes. Throws if a header has the same label
+   * twice.
    */
   static fromCbor(cbor: string | Uint8Array): CoseSign1 {
-    const decoded = decode(toBytes(cbor));
+    const message = decodeAnnotated(toBytes(cbor));
+    const decoded = message.toJS();
 
     if (!Array.isArray(decoded)) throw Error("Invalid CBOR");
     if (decoded.length !== 4) throw Error("Invalid COSE_SIGN1");
@@ -54,16 +61,22 @@ class CoseSign1 {
 
     let protectedMap = new Map();
     if (protectedSerialized.length !== 0) {
+      let header: CborNode;
       try {
-        protectedMap = decode(protectedSerialized);
+        header = decodeAnnotated(protectedSerialized);
+        protectedMap = header.toJS();
       } catch {
         throw Error("Invalid protected");
       }
       if (!(protectedMap instanceof Map)) throw Error("Invalid protected");
+      if (hasDuplicateLabel(header, protectedMap)) throw Error("Duplicate label in protected");
     }
 
     const unProtectedMap = decoded[1];
     if (!(unProtectedMap instanceof Map)) throw Error("Invalid unprotected");
+    if (hasDuplicateLabel(message.items![1], unProtectedMap)) {
+      throw Error("Duplicate label in unprotected");
+    }
 
     const payload = decoded[2];
     if (payload !== null && !isBytes(payload)) throw Error("Invalid payload");
@@ -115,6 +128,9 @@ class CoseSign1 {
     return encode(coseSign1);
   }
 
+  /**
+   * Whether the signature verifies. Throws if the protected header's `alg` isn't EdDSA (-8).
+   */
   verifySignature({
     externalAad = EMPTY,
     publicKeyBuffer,
@@ -129,6 +145,8 @@ class CoseSign1 {
      */
     payload?: Uint8Array;
   } = {}): boolean {
+    if (this.protectedMap.get(1) !== -8) throw Error("Unsupported alg, expected EdDSA (-8)");
+
     if (!publicKeyBuffer) {
       publicKeyBuffer = this.getPublicKey();
     }
