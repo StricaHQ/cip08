@@ -1,11 +1,19 @@
-import { Decoder } from "@stricahq/cbors";
-import { Buffer } from "buffer";
+import { decode } from "@stricahq/cbors";
+import { isBytes, toBytes } from "./internal/bytes";
 
-export const getPublicKeyFromCoseKey = (cbor: string): Buffer => {
-  const decodedCoseKey = Decoder.decode(Buffer.from(cbor, "hex"));
-  const publicKeyBuffer = decodedCoseKey.value.get(-2);
+/**
+ * The public key (label -2) of a COSE_Key, such as the `key` a CIP-30 wallet returns from
+ * signData.
+ *
+ * @param cbor - the COSE_Key, as hex or bytes
+ */
+export const getPublicKeyFromCoseKey = (cbor: string | Uint8Array): Uint8Array => {
+  const decodedCoseKey = decode(toBytes(cbor));
+  if (!(decodedCoseKey instanceof Map)) throw Error("Invalid COSE_Key");
 
-  if (publicKeyBuffer) {
+  const publicKeyBuffer = decodedCoseKey.get(-2);
+
+  if (isBytes(publicKeyBuffer)) {
     return publicKeyBuffer;
   }
 

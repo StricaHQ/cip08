@@ -1,101 +1,133 @@
-import { Encoder, Decoder } from "@stricahq/cbors";
+import { blake2b } from "@noble/hashes/blake2.js";
 import { PublicKey } from "@stricahq/bip32ed25519";
-import { blake2b } from "blakejs";
-import { Buffer } from "buffer";
+import { decode, encode } from "@stricahq/cbors";
+import { isBytes, plainView, toBytes } from "./internal/bytes";
+
+const EMPTY = new Uint8Array(0);
 
 class CoseSign1 {
   private protectedMap: Map<any, any>;
 
   private unProtectedMap: Map<any, any>;
 
-  private payload: Buffer | null;
+  private payload: Uint8Array | null;
 
-  private signature: Buffer | undefined;
+  private signature: Uint8Array | undefined;
 
-  constructor(payload: {
+  // the protected header of a parsed message as written: the signature covers these exact
+  // bytes, and encoding the map again may not give them back
+  private protectedSerialized: Uint8Array | undefined;
+
+  constructor(options: {
     protectedMap: Map<any, any>;
     unProtectedMap: Map<any, any>;
-    payload: Buffer | null;
-    signature?: Buffer;
+    /** null for a detached payload */
+    payload: Uint8Array | null;
+    signature?: Uint8Array;
   }) {
-    this.protectedMap = payload.protectedMap;
-    this.unProtectedMap = payload.unProtectedMap;
-    this.payload = payload.payload;
+    const { payload, signature } = options;
+    if (payload !== null && !isBytes(payload)) throw TypeError("Invalid payload");
+    if (signature !== undefined && !isBytes(signature)) throw TypeError("Invalid signature");
+
+    this.protectedMap = options.protectedMap;
+    this.unProtectedMap = options.unProtectedMap;
+    this.payload = payload && plainView(payload);
 
     if (this.unProtectedMap.get("hashed") == null) {
       this.unProtectedMap.set("hashed", false);
     }
 
-    this.signature = payload.signature;
+    this.signature = signature && plainView(signature);
   }
 
-  static fromCbor(cbor: string) {
-    const decoded = Decoder.decode(Buffer.from(cbor, "hex"));
+  /**
+   * Parses a COSE_Sign1 message, given as hex or bytes.
+   */
+  static fromCbor(cbor: string | Uint8Array): CoseSign1 {
+    const decoded = decode(toBytes(cbor));
 
-    if (!(decoded.value instanceof Array)) throw Error("Invalid CBOR");
-    if (decoded.value.length !== 4) throw Error("Invalid COSE_SIGN1");
+    if (!Array.isArray(decoded)) throw Error("Invalid CBOR");
+    if (decoded.length !== 4) throw Error("Invalid COSE_SIGN1");
 
-    let protectedMap;
-    // Decode and Set ProtectedMap
-    const protectedSerialized = decoded.value[0];
-    try {
-      protectedMap = Decoder.decode(protectedSerialized).value;
-      if (!(protectedMap instanceof Map)) {
-        throw Error();
+    const protectedSerialized = decoded[0];
+    if (!isBytes(protectedSerialized)) throw Error("Invalid protected");
+
+    let protectedMap = new Map();
+    if (protectedSerialized.length !== 0) {
+      try {
+        protectedMap = decode(protectedSerialized);
+      } catch {
+        throw Error("Invalid protected");
       }
-    } catch (error) {
-      throw Error("Invalid protected");
+      if (!(protectedMap instanceof Map)) throw Error("Invalid protected");
     }
 
-    // Set UnProtectedMap
-    const unProtectedMap = decoded.value[1];
+    const unProtectedMap = decoded[1];
     if (!(unProtectedMap instanceof Map)) throw Error("Invalid unprotected");
 
-    // Set Payload
-    const payload = decoded.value[2];
+    const payload = decoded[2];
+    if (payload !== null && !isBytes(payload)) throw Error("Invalid payload");
 
-    // Set Signature
-    const signature = decoded.value[3];
+    const signature = decoded[3];
+    if (!isBytes(signature)) throw Error("Invalid signature");
 
-    return new CoseSign1({
+    const coseSign1 = new CoseSign1({
       protectedMap,
       unProtectedMap,
       payload,
       signature,
     });
+    coseSign1.protectedSerialized = protectedSerialized;
+
+    return coseSign1;
   }
 
-  createSigStructure(externalAad = Buffer.alloc(0)): Buffer {
-    let protectedSerialized = Buffer.alloc(0);
+  /**
+   * The Sig_structure, the bytes to sign.
+   *
+   * @param payload - the payload to sign in place of the message's own, needed when it is
+   * detached
+   */
+  createSigStructure(externalAad: Uint8Array = EMPTY, payload?: Uint8Array): Uint8Array {
+    if (!isBytes(externalAad)) throw TypeError("Invalid externalAad");
+    if (payload !== undefined && !isBytes(payload)) throw TypeError("Invalid payload");
 
-    if (this.protectedMap.size !== 0) {
-      protectedSerialized = Encoder.encode(this.protectedMap);
-    }
+    const signedPayload = payload ?? this.payload;
+    if (!signedPayload) throw Error("Payload is detached, pass the payload");
 
-    const structure = ["Signature1", protectedSerialized, externalAad, this.payload];
+    const structure = ["Signature1", this.getProtectedSerialized(), externalAad, signedPayload];
 
-    return Encoder.encode(structure);
+    return encode(structure);
   }
 
-  buildMessage(signature: Buffer): Buffer {
-    this.signature = signature;
+  buildMessage(signature: Uint8Array): Uint8Array {
+    if (!isBytes(signature)) throw TypeError("Invalid signature");
 
-    let protectedSerialized = Buffer.alloc(0);
-    if (this.protectedMap.size !== 0) {
-      protectedSerialized = Encoder.encode(this.protectedMap);
-    }
+    this.signature = plainView(signature);
 
-    const coseSign1 = [protectedSerialized, this.unProtectedMap, this.payload, this.signature];
+    const coseSign1 = [
+      this.getProtectedSerialized(),
+      this.unProtectedMap,
+      this.payload,
+      this.signature,
+    ];
 
-    return Encoder.encode(coseSign1);
+    return encode(coseSign1);
   }
 
   verifySignature({
-    externalAad = Buffer.alloc(0),
+    externalAad = EMPTY,
     publicKeyBuffer,
+    payload,
   }: {
-    externalAad?: Buffer;
-    publicKeyBuffer?: Buffer;
+    externalAad?: Uint8Array;
+    /** the 32-byte Ed25519 public key, if the protected header doesn't carry it (label 4) */
+    publicKeyBuffer?: Uint8Array;
+    /**
+     * the payload to verify in place of the message's own, needed when it is detached. For a
+     * hashed message, pass the hash
+     */
+    payload?: Uint8Array;
   } = {}): boolean {
     if (!publicKeyBuffer) {
       publicKeyBuffer = this.getPublicKey();
@@ -103,35 +135,64 @@ class CoseSign1 {
 
     if (!publicKeyBuffer) throw Error("Public key not found");
     if (!this.signature) throw Error("Signature not found");
+    if (!isBytes(publicKeyBuffer) || publicKeyBuffer.length !== 32) {
+      throw Error("Invalid public key");
+    }
 
-    const publicKey = new PublicKey(publicKeyBuffer);
-
-    return publicKey.verify(this.signature, this.createSigStructure(externalAad));
+    return new PublicKey(publicKeyBuffer).verify(
+      this.signature,
+      this.createSigStructure(externalAad, payload)
+    );
   }
 
-  hashPayload() {
-    if (!this.unProtectedMap) throw Error("Invalid unprotected map");
+  /**
+   * Replaces the payload with its Blake2b-224 hash and sets `hashed` in the unprotected header.
+   */
+  hashPayload(): void {
     if (!this.payload) throw Error("Invalid payload");
 
-    if (this.unProtectedMap.get("hashed")) throw Error("Payload already hashed");
-    if (this.unProtectedMap.get("hashed") != false) throw Error("Invalid unprotected map");
+    const hashed = this.unProtectedMap.get("hashed");
+    if (hashed === true) throw Error("Payload already hashed");
+    if (hashed !== false) throw Error("Invalid unprotected map");
 
     this.unProtectedMap.set("hashed", true);
 
-    const hash = blake2b(this.payload, undefined, 24);
-    this.payload = Buffer.from(hash);
+    this.payload = blake2b(this.payload, { dkLen: 28 });
   }
 
-  getAddress(): Buffer {
+  getAddress(): Uint8Array | undefined {
     return this.protectedMap.get("address");
   }
 
-  getPublicKey(): Buffer {
+  getPublicKey(): Uint8Array | undefined {
     return this.protectedMap.get(4);
   }
 
-  getSignature(): Buffer | undefined {
+  /**
+   * The payload, null if it is detached, or its hash if it was hashed.
+   */
+  getPayload(): Uint8Array | null {
+    return this.payload;
+  }
+
+  /**
+   * Whether the payload is the message's Blake2b-224 hash, as the `hashed` unprotected header
+   * says.
+   */
+  isHashed(): boolean {
+    return this.unProtectedMap.get("hashed") === true;
+  }
+
+  getSignature(): Uint8Array | undefined {
     return this.signature;
+  }
+
+  private getProtectedSerialized(): Uint8Array {
+    if (this.protectedSerialized) return this.protectedSerialized;
+
+    if (this.protectedMap.size === 0) return EMPTY;
+
+    return encode(this.protectedMap);
   }
 }
 
