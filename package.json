@@ -1,7 +1,7 @@
 {
   "name": "@stricahq/cip08",
   "version": "1.0.4",
-  "description": "Cardano CIP08 JavaScript implementation",
+  "description": "Cardano CIP-8 message signing: verify CIP-30 signData output, or build and sign COSE_Sign1 messages",
   "type": "module",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -23,7 +23,10 @@
     "signature",
     "strica",
     "cardano",
-    "cip08"
+    "cip08",
+    "cip-8",
+    "cip-30",
+    "cose"
   ],
   "repository": {
     "type": "git",
