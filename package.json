@@ -1,6 +1,6 @@
 {
   "name": "@stricahq/cip08",
-  "version": "1.0.4",
+  "version": "2.0.0",
   "description": "Cardano CIP-8 message signing: verify CIP-30 signData output, or build and sign COSE_Sign1 messages",
   "type": "module",
   "types": "./dist/index.d.ts",
